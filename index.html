@@ -707,8 +707,8 @@ function showSubmitBox(kind, html){
 function hideSubmitBox(){ var box = $('submitBox'); box.hidden = true; box.innerHTML = ''; box.className = ''; }
 function showLink(r){
   var url = submitUrl(r.id), local = location.protocol === 'file:';
-  showSubmitBox('', '<div class="sb-h">提出用のリンク（これをコピーしてlearningBOXに提出します）</div>' +
-    '<div class="sb-row"><input id="sbUrl" readonly value="' + esc(url) + '" aria-label="提出用のリンク"><button type="button" id="sbCopy">リンクをコピー</button></div>' +
+  showSubmitBox('', '<div class="sb-h">提出用リンク</div>' +
+    '<div class="sb-row"><input id="sbUrl" readonly value="' + esc(url) + '" aria-label="提出用リンク"><button type="button" id="sbCopy">リンクをコピー</button></div>' +
     '<div class="sb-row"><span class="sb-meta">' + metaLine(r) + '</span><span style="margin-left:auto" class="sb-meta">保存ID <span class="sb-id">' + r.id + '</span></span></div>' +
     (local ? '<div class="sb-warn">※ このファイルはパソコンの中から開いているため、リンクはほかの端末では開けません。保存ID（' + r.id + '）も一緒に提出してください。</div>' : ''));
   $('sbCopy').onclick = function(){
