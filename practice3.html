@@ -68,6 +68,27 @@ input.c:focus,.pick:focus-visible,.pick[aria-expanded="true"]{outline:calc(2.4*v
   background:linear-gradient(#FCFCFC,var(--btn) 60%,#E1E1E1);border:1px solid var(--btn-edge);border-radius:calc(3*var(--pt));
   box-shadow:inset 0 0 0 1px #FFFFFF;cursor:pointer;white-space:nowrap;
 }
+#submitBtn{
+  grid-area:15/3/16/5;align-self:start;width:auto;min-width:0;overflow:hidden;height:calc(40*var(--pt));
+  margin:calc(16*var(--pt)) 0 0 0;padding:0;
+  font-family:var(--font);font-size:calc(17*var(--pt));font-weight:bold;color:#3A2A00;
+  background:linear-gradient(#FFF6CF,#F7DC74 60%,#EFC94A);border:1px solid #B08A1E;border-radius:calc(3*var(--pt));
+  box-shadow:inset 0 0 0 1px #FFFFFF;cursor:pointer;white-space:nowrap;
+}
+#submitBtn:hover:not(:disabled){background:linear-gradient(#FFF9E0,#FBE58F 60%,#F3D35F);}
+#submitBtn:disabled{cursor:default;color:#6B5A2A;background:linear-gradient(#FBF4DA,#EADCA8);}
+#submitBtn:focus-visible{outline:2px solid #217346;outline-offset:2px;}
+#submitBox{grid-area:15/5/16/13;margin-top:calc(16*var(--pt));margin-left:calc(10*var(--pt));background:#FFFFFF;border:calc(1.6*var(--pt)) solid #1F6E43;border-radius:calc(6*var(--pt));
+  padding:calc(8*var(--pt)) calc(12*var(--pt));font-size:calc(14*var(--pt));color:#222;}
+#submitBox .sb-h{font-weight:bold;font-size:calc(15*var(--pt));}
+#submitBox .sb-row{display:flex;gap:calc(8*var(--pt));align-items:center;margin:calc(4*var(--pt)) 0;}
+#submitBox input{flex:1 1 auto;min-width:0;font:calc(14*var(--pt)) ui-monospace,Consolas,monospace;padding:calc(4*var(--pt)) calc(6*var(--pt));border:1px solid #999;border-radius:calc(3*var(--pt));}
+#submitBox button{font-family:var(--font);font-size:calc(14*var(--pt));font-weight:bold;padding:calc(4*var(--pt)) calc(10*var(--pt));cursor:pointer;white-space:nowrap;}
+#submitBox .sb-meta{color:#555;font-size:calc(13*var(--pt));}
+#submitBox .sb-id{font:bold calc(16*var(--pt)) ui-monospace,Consolas,monospace;letter-spacing:.1em;color:#1F6E43;}
+#submitBox .sb-warn{color:#C00000;font-size:calc(13*var(--pt));}
+#submitBox.err{border-color:#C00000;}
+#submitBox.view{border-color:#3C7FB1;}
 #mainBtn:hover{background:linear-gradient(#EAF6FD,#D9F0FC 60%,#BEE6FD);border-color:#3C7FB1;}
 #mainBtn:active{background:linear-gradient(#C4E5F6,#98D1EF);}
 #mainBtn:focus-visible{outline:2px solid #217346;outline-offset:2px;}
@@ -152,6 +173,8 @@ ul.warn{margin:0;padding-left:20px;font-size:13px;color:#8a2a00;max-height:160px
       <div class="sheet-title" id="sheetTitle"></div>
       <div id="remain" aria-live="polite"></div>
       <div class="status-line" id="statusLine"></div>
+      <button type="button" id="submitBtn" hidden="">保存</button>
+      <div id="submitBox" hidden="" aria-live="polite"></div>
       <div class="c hdr thick" style="grid-area:4/3/5/5">番号</div>
       <div class="c hdr thick" style="grid-area:4/5/5/11">問題</div>
       <div class="c hdr thick" style="grid-area:4/11/5/12">解答欄</div>
@@ -495,7 +518,8 @@ function fmtClock(t){ var d = new Date(t); return d.getHours() + ':' + String(d.
 function fmtDur(ms){ var s = Math.max(0, Math.round(ms/1000)); return Math.floor(s/60) + '分' + String(s%60).padStart(2,'0') + '秒'; }
 
 function resetView(){
-  state = 'ready'; test = [];
+  if (viewing) closeSubmitted();
+  state = 'ready'; test = []; lastResult = null; submitBusy = false; hideSubmitBox();
   btn.textContent = 'テスト開始'; btn.tabIndex = 0;
   $('tStart').textContent = ''; $('tEnd').textContent = ''; $('tDur').textContent = '';
   $('total').textContent = ''; $('rightHdr').textContent = ''; $('remain').textContent = ''; $('statusLine').textContent = '';
@@ -517,6 +541,7 @@ function resetView(){
   else { $('catA').style.gridArea = '5/2/' + (5 + np) + '/3'; $('catA').innerHTML = '選<br>択<br>問<br>題'; $('catB').style.gridArea = (5 + np) + '/2/15/3'; $('catB').hidden = false; }
   document.title = testTitle();
   buildRows();
+  updateSubmitBtn();
 }
 
 function startTest(){
@@ -529,6 +554,7 @@ function startTest(){
   }
   if (!(bank.items || []).length) { dialog('問題がありません', '問題が読み込まれていません。右下の「管理」から問題ファイルを読み込んでください。', [{label:'OK', primary:true}]); return; }
   lsSet('jt:user', { user:u, name:$('name').value.trim() });
+  hideSubmitBox(); lastResult = null;
   test = drawTest();
   state = 'running';
   startAt = Date.now(); endAt = startAt + timeLimitMs();
@@ -583,7 +609,11 @@ function finishTest(reason){
   $('remain').textContent = reason === 'timeout' ? '時間切れ' : ''; $('remain').classList.remove('warn');
   btn.textContent = '閉じる'; btn.tabIndex = -1;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // 時間切れのときに入力中のEnterで閉じないように
-  saveResult(total, detail);
+  var n = saveResult(total, detail), fd = new Date();
+  lastResult = { id:'', title:testTitle(), user:$('user').value.trim(), n:n, total:total, timeout:reason === 'timeout',
+    date:fd.getFullYear() + '/' + (fd.getMonth()+1) + '/' + fd.getDate(), start:fmtClock(startAt), end:fmtClock(finishedAt), dur:fmtDur(finishedAt - startAt),
+    qs:rows.map(function(r, i){ var q = r.q; return q ? { no:i+1, type:q.type, text:q.text, answer:q.answer, word:q.word || '', page:q.page || '', given:detail[i].answer, ok:detail[i].ok } : null; }) };
+  updateSubmitBtn();
 }
 
 /* ---------- 結果の記録・送信（旧版：共有ドライブへ「ユーザー名(回数).xlsm」で保存） ---------- */
@@ -610,6 +640,7 @@ function saveResult(total, detail){
   } else {
     $('statusLine').textContent = n + '回目の受験';
   }
+  return n;
 }
 
 btn.addEventListener('click', function(e){
@@ -624,6 +655,140 @@ $('user').addEventListener('input', function(){ if (hasRoster()) { var r = looku
 $('user').addEventListener('keydown', function(e){ if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); if (!$('name').readOnly) $('name').focus(); else btn.focus(); } });
 $('name').addEventListener('keydown', function(e){ if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); btn.focus(); } });
 window.addEventListener('beforeunload', function(e){ if (state === 'running') { e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- 本番用の提出（Firebaseに保存して、提出用リンクを表示） ---------- */
+/* 論理回路・IPアドレスの教材と同じ保存先。記録の中に教材名（app）を入れて、ほかの教材の保存IDと区別する */
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAgNLb2TKSD-a_yw6LrBbyeGNG2V_4H-Ko",
+  authDomain: "logic-circuit-basics.firebaseapp.com",
+  projectId: "logic-circuit-basics",
+  storageBucket: "logic-circuit-basics.firebasestorage.app",
+  messagingSenderId: "454179935245",
+  appId: "1:454179935245:web:0ba0c1ffdf736498f33144"
+};
+var FIREBASE_VER = '12.19.0', SUBMIT_APP = 'jumon-test';
+var SAVE_ID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789', SAVE_ID_RE = /^[a-hj-km-np-z2-9]{8}$/;
+var fb = null, lastResult = null, submitBusy = false, viewing = false;
+function fbInit(){
+  if (window.__FB_TEST__) return Promise.resolve(window.__FB_TEST__);   // 動作確認用
+  if (fb) return Promise.resolve(fb);
+  var base = 'https://www.gstatic.com/firebasejs/' + FIREBASE_VER + '/';
+  return Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-firestore.js')]).then(function(m){
+    var app = m[0].initializeApp(FIREBASE_CONFIG);
+    fb = { db:m[1].getFirestore(app), doc:m[1].doc, getDoc:m[1].getDoc, setDoc:m[1].setDoc, serverTimestamp:m[1].serverTimestamp };
+    return fb;
+  });
+}
+function newSaveId(){ var a = new Uint8Array(8); crypto.getRandomValues(a); return Array.prototype.map.call(a, function(x){ return SAVE_ID_CHARS[x % SAVE_ID_CHARS.length]; }).join(''); }
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+function withRetry(fn){
+  var i = 0;
+  function go(){ return fn().catch(function(e){ i++; if (i >= 3 || (e && (e.code === 'permission-denied' || e.code === 'invalid-argument'))) throw e; return sleep(700 * i + Math.random() * 700).then(go); }); }
+  return go();
+}
+function pageUrl(){ return location.href.split('#')[0]; }
+function submitUrl(id){ return pageUrl() + '#' + id; }
+function hashId(){ var h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch(e) {} h = h.trim().toLowerCase(); return SAVE_ID_RE.test(h) ? h : ''; }
+function submitErr(e){
+  if (e && e.code === 'permission-denied') return '保存できませんでした（保存先の設定を先生に確認してください）。';
+  return 'インターネットに接続できなかったため、保存できませんでした。少し待ってから、もう一度「保存」を押してください。';
+}
+function updateSubmitBtn(){
+  var b = $('submitBtn'), show = state === 'done' && mode() === 'main' && !viewing && !!lastResult;
+  b.hidden = !show; if (!show) return;
+  b.disabled = submitBusy || !!lastResult.id;
+  b.textContent = submitBusy ? '保存中…' : lastResult.id ? '保存済み' : '保存';
+}
+function metaLine(r){ return esc(r.user) + '／' + r.n + '回目の受験／' + esc(r.end) + ' 終了／' + r.total + '点'; }
+function showSubmitBox(kind, html){
+  var box = $('submitBox'); box.className = kind || ''; box.innerHTML = html; box.hidden = false;
+  try { box.scrollIntoView({ block:'nearest', behavior:'smooth' }); } catch(e) { box.scrollIntoView(false); }
+}
+function hideSubmitBox(){ var box = $('submitBox'); box.hidden = true; box.innerHTML = ''; box.className = ''; }
+function showLink(r){
+  var url = submitUrl(r.id), local = location.protocol === 'file:';
+  showSubmitBox('', '<div class="sb-h">提出用リンク</div>' +
+    '<div class="sb-row"><input id="sbUrl" readonly value="' + esc(url) + '" aria-label="提出用リンク"><button type="button" id="sbCopy">リンクをコピー</button></div>' +
+    '<div class="sb-row"><span class="sb-meta">' + metaLine(r) + '</span><span style="margin-left:auto" class="sb-meta">保存ID <span class="sb-id">' + r.id + '</span></span></div>' +
+    (local ? '<div class="sb-warn">※ このファイルはパソコンの中から開いているため、リンクはほかの端末では開けません。保存ID（' + r.id + '）も一緒に提出してください。</div>' : ''));
+  $('sbCopy').onclick = function(){
+    var inp = $('sbUrl'), done = function(){ $('sbCopy').textContent = 'コピーしました'; };
+    try { navigator.clipboard.writeText(url).then(done, function(){ inp.select(); try { document.execCommand('copy'); } catch(e) {} done(); }); }
+    catch(e) { inp.select(); try { document.execCommand('copy'); } catch(e2) {} done(); }
+  };
+}
+function submitResult(){
+  if (!lastResult || submitBusy || lastResult.id) return;
+  submitBusy = true; updateSubmitBtn();
+  showSubmitBox('', '<div class="sb-h">保存しています…</div>');
+  var r = lastResult, F;
+  var data = JSON.stringify({ app:SUBMIT_APP, kind:'result', title:r.title, user:r.user, n:r.n, date:r.date, start:r.start, end:r.end, dur:r.dur,
+                              total:r.total, timeout:r.timeout, source:bank.source || '', built:bank.built || '', qs:r.qs });
+  fbInit().then(function(f){
+    F = f; var tries = 0;
+    function pick(){
+      if (tries++ >= 5) throw { code:'unavailable' };
+      var c = newSaveId();
+      return withRetry(function(){ return F.getDoc(F.doc(F.db, 'saves', c)); }).then(function(snap){ return snap.exists() ? pick() : c; });
+    }
+    return pick();
+  }).then(function(id){
+    return withRetry(function(){ return F.setDoc(F.doc(F.db, 'saves', id), { v:1, data:data, updated:F.serverTimestamp() }); }).then(function(){ return id; });
+  }).then(function(id){
+    r.id = id; submitBusy = false; updateSubmitBtn(); showLink(r);
+  }).catch(function(e){
+    submitBusy = false; updateSubmitBtn();
+    showSubmitBox('err', '<div class="sb-h" style="color:#C00000">' + esc(submitErr(e)) + '</div>');
+  });
+}
+$('submitBtn').addEventListener('click', submitResult);
+
+/* 提出用リンク（…#保存ID）を開いたとき：提出された結果を表示する（表示のみ） */
+function showSubmitted(id){
+  showSubmitBox('view', '<div class="sb-h">提出された結果を読み込んでいます…（保存ID ' + id + '）</div>');
+  fbInit().then(function(F){ return withRetry(function(){ return F.getDoc(F.doc(F.db, 'saves', id)); }); }).then(function(snap){
+    if (!snap.exists()) throw { msg:'保存ID「' + id + '」の結果は見つかりませんでした。' };
+    var d = JSON.parse(snap.data().data);
+    if (!d || d.app !== SUBMIT_APP || d.kind !== 'result') throw { msg:'保存ID「' + id + '」は、十問テストの結果ではありません。' };
+    renderSubmitted(id, d);
+  }).catch(function(e){
+    showSubmitBox('err', '<div class="sb-h" style="color:#C00000">' + esc(e && e.msg ? e.msg : submitErr(e)) + '</div>');
+  });
+}
+function renderSubmitted(id, d){
+  closeModal(); closePick(); if (timer) { clearInterval(timer); timer = null; }
+  viewing = true; state = 'done';
+  test = (d.qs || []).map(function(q){ return q ? { type:q.type, text:q.text, answer:q.answer, word:q.word || '', page:q.page || '', choices:q.type === 'tf' ? ['○','×'] : [q.given || ''] } : null; });
+  buildRows();
+  rows.forEach(function(r, i){
+    var q = (d.qs || [])[i]; if (!q) return;
+    r.ans.value = q.given || ''; r.ans.disabled = true; if (r.ans.tagName === 'INPUT') fitText(r.ans);
+    r.sc.textContent = q.ok ? '1' : '0'; r.rt.textContent = '';
+    if (!q.ok) {
+      r.rt.appendChild(document.createTextNode(q.answer));
+      if (q.type === 'tf' && q.answer === '×' && q.word) r.rt.appendChild(el('small', null, null, '正しくは【' + q.word + '】'));
+      if (q.page) r.rt.appendChild(el('span', 'pg', null, '教p.' + q.page));
+    }
+  });
+  $('user').value = d.user || ''; $('name').value = '（提出された結果）'; $('user').readOnly = true; $('name').readOnly = true;
+  fitText($('user')); fitText($('name'));
+  $('tStart').textContent = d.start + ' 開始'; $('tEnd').textContent = d.end + ' 終了'; $('tDur').textContent = '受験時間 ' + d.dur;
+  $('total').textContent = d.total + '点'; $('rightHdr').textContent = '正答';
+  $('remain').textContent = d.timeout ? '時間切れ' : '';
+  $('statusLine').textContent = d.n + '回目の受験';
+  btn.textContent = '閉じる';
+  updateSubmitBtn();
+  showSubmitBox('view', '<div class="sb-h">提出された結果を表示しています（表示のみ）</div>' +
+    '<div class="sb-row"><span class="sb-meta">' + esc(d.date || '') + '　' + metaLine(d) + '</span><span style="margin-left:auto" class="sb-meta">保存ID <span class="sb-id">' + id + '</span></span></div>' +
+    (d.title && d.title !== testTitle() ? '<div class="sb-warn">※ このページとは別のテスト（' + esc(d.title) + '）の結果です。</div>' : ''));
+}
+function closeSubmitted(){
+  viewing = false;
+  try { history.replaceState(null, '', pageUrl()); } catch(e) {}
+  $('user').value = ''; $('name').value = '';
+  var saved = lsGet('jt:user', null); if (saved && saved.user) { $('user').value = saved.user; $('name').value = saved.name || ''; }
+}
+window.addEventListener('hashchange', function(){ var id = hashId(); if (id && state !== 'running') showSubmitted(id); });
 
 /* ---------- ダイアログ（alert/confirm の代わり） ---------- */
 var modal = $('modal'), panel = $('panel'), modalResolve = null;
@@ -689,9 +854,15 @@ function showAdmin(){
       '<p class="note" id="timeMsg">変更はこの画面にすぐ反映されます。生徒に配るファイルに反映するには、変更したあと下の「配布用HTMLを書き出す」で保存しなおします。初期値は本番用5分・練習用50分、経過時間はどちらも表示しません。</p></section>' +
     '<section><h3>問題ファイル（Excel）を読み込む</h3><div class="drop" id="drop"><p>問題集のExcelファイル（.xlsx / .xlsm）をここにドロップするか、</p><p><input type="file" id="file" accept=".xlsx,.xlsm,.xls"></p></div><p class="note" id="loadMsg">読み込んだ問題はこの画面にだけ反映されます。生徒に配るには、下の「配布用HTMLを書き出す」を使います。Excelの読み込みにはインターネット接続が必要です。</p></section>' +
     '<section><h3>配布用HTMLを書き出す</h3><p>いまの問題を埋め込んだHTMLファイルを保存します。生徒はこのファイルをブラウザで開くだけで受験できます（インターネット接続は不要）。</p><div style="display:grid;gap:4px;margin-bottom:6px">' + ['main','term','calc'].concat(hasCalc2() ? ['calc2'] : []).map(function(m){ return '<label><input type="radio" name="expMode" value="' + m + '"' + (m === mode() ? ' checked' : '') + '> ' + modeJa(m) + '：' + esc(titleFor(m)) + '<br><span class="note">ファイル名：' + esc(fileNameFor(m)) + '</span></label>'; }).join('') + '</div><div><button type="button" class="pbtn primary" id="exportBtn">配布用HTMLを書き出す</button></div><p class="note">' + exportNote() + '</p><p class="note">保存先を確かめる画面が出たら「保存」を選びます。</p></section>' +
+    '<section><h3>提出された結果を見る</h3><p>生徒が提出したリンク（…html#保存ID）を開くと、その結果が表示されます。保存IDだけがわかるときは、ここに入れて表示します。</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="viewId" maxlength="8" placeholder="保存ID（8文字）" style="font:16px var(--font);padding:4px 8px;width:10em"><button type="button" class="pbtn" id="viewBtn">結果を表示</button></div><p class="note" id="viewMsg"></p></section>' +
     '<section><h3>この端末の受験記録</h3><p>' + hist.length + ' 件</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="pbtn" id="csvBtn"' + (hist.length ? '' : ' disabled') + '>CSVで保存</button><button type="button" class="pbtn danger" id="clearBtn"' + (hist.length || lsGet('jt:user', null) ? '' : ' disabled') + '>記録を消す</button><button type="button" class="pbtn danger" id="countBtn"' + (countKeys().length ? '' : ' disabled') + '>受験回数をリセット</button></div><p class="note">「記録を消す」は、受験記録と、この端末に覚えているユーザー名・氏名を消します（受験回数は消えません）。</p><p class="note">受験回数（「○回目の受験」）は、この端末に、ユーザー名ごとに数えています。いま ' + countKeys().length + ' 人分あります。リセットすると、全員が次の受験から「1回目」にもどります。</p></section>' +
     '</div><div class="ft"><button type="button" class="pbtn" id="admClose" data-autofocus>閉じる</button></div></div>');
   $('admClose').onclick = function(){ closeModal(); };
+  $('viewBtn').onclick = function(){
+    var id = String($('viewId').value || '').trim().toLowerCase();
+    if (!SAVE_ID_RE.test(id)) { $('viewMsg').textContent = '保存IDは8文字の英数字です。'; return; }
+    closeModal(); if (location.hash === '#' + id) showSubmitted(id); else location.hash = id;
+  };
   $('timeForm').addEventListener('submit', function(e){
     e.preventDefault();
     var a = Math.round(Number($('tMain').value)), b = Math.round(Number($('tPrac').value));
@@ -830,6 +1001,7 @@ resetView();
 var saved = lsGet('jt:user', null);
 if (saved && saved.user) { $('user').value = saved.user; if (hasRoster()) { var r0 = lookupName(saved.user); $('name').value = r0 ? r0.name : ''; } else $('name').value = saved.name || ''; }
 fitAll();
+if (hashId()) showSubmitted(hashId());
 window.__jt = { current:function(){ return test; }, state:function(){ return state; }, fileNameFor:fileNameFor, get bank(){ return bank; }, drawTest:drawTest, sameAnswer:sameAnswer, parseWorkbook:parseWorkbook };
 })();
 </script>
